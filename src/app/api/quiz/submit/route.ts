@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
-const GRACE_PERIOD_SECONDS = 5
+// Grace period covers drift between `server_started_at` (set at session
+// creation, before the client has received the questions and started its local
+// Timer) and the moment the submit request actually reaches the server. In
+// practice this gap can be several seconds (session creation → response →
+// render → Timer mount → submit round-trip), so a generous buffer is needed
+// to avoid wrongly marking legit finishes as timed_out.
+const GRACE_PERIOD_SECONDS = 15
 
 type SessionRow = {
   id: string
@@ -9,6 +15,7 @@ type SessionRow = {
   server_started_at: string
   max_possible_score: number
   quiz_type_id: string | null
+  question_order: string[]
 }
 
 type QuizTypeRow = {
@@ -40,7 +47,7 @@ export async function POST(request: NextRequest) {
 
   const sessionResult = await supabase
     .from('quiz_sessions')
-    .select('id, status, server_started_at, max_possible_score, quiz_type_id')
+    .select('id, status, server_started_at, max_possible_score, quiz_type_id, question_order')
     .eq('id', session_id)
     .eq('user_id', user.id)
     .single()
@@ -71,23 +78,43 @@ export async function POST(request: NextRequest) {
   const now = new Date()
   const started = new Date(session.server_started_at)
   const elapsedSeconds = (now.getTime() - started.getTime()) / 1000
-  const status: 'completed' | 'timed_out' =
-    elapsedSeconds > timeLimitSeconds + GRACE_PERIOD_SECONDS
-      ? 'timed_out'
-      : 'completed'
 
-  const { count: correctCount, error: countError } = await supabase
-    .from('user_answers')
-    .select('*', { count: 'exact', head: true })
-    .eq('session_id', session_id)
-    .eq('is_correct', true)
+  // Fetch both the total answered count and the correct count in parallel.
+  // The total count is the authoritative signal for "did the user finish?".
+  const [answeredResult, correctResult] = await Promise.all([
+    supabase
+      .from('user_answers')
+      .select('*', { count: 'exact', head: true })
+      .eq('session_id', session_id),
+    supabase
+      .from('user_answers')
+      .select('*', { count: 'exact', head: true })
+      .eq('session_id', session_id)
+      .eq('is_correct', true),
+  ])
 
-  if (countError) {
-    console.error('[submit count]', countError)
+  if (answeredResult.error || correctResult.error) {
+    console.error('[submit count]', answeredResult.error ?? correctResult.error)
     return NextResponse.json({ error: 'Failed to calculate score' }, { status: 500 })
   }
 
-  const score = correctCount ?? 0
+  const totalQuestions = (session.question_order ?? []).length
+  const answeredCount = answeredResult.count ?? 0
+  const allAnswered = totalQuestions > 0 && answeredCount >= totalQuestions
+
+  // Status rules:
+  //   1. If the user actually answered every question, the quiz is completed —
+  //      regardless of wall-clock drift between server_started_at and the
+  //      client-side Timer. This is the ground-truth signal for "finished".
+  //   2. Otherwise, fall back to the wall-clock check for forced auto-submits
+  //      (timer ran out with unanswered questions).
+  const status: 'completed' | 'timed_out' = allAnswered
+    ? 'completed'
+    : elapsedSeconds > timeLimitSeconds + GRACE_PERIOD_SECONDS
+      ? 'timed_out'
+      : 'completed'
+
+  const score = correctResult.count ?? 0
   const maxScore = session.max_possible_score
   const percentage = parseFloat(((score / maxScore) * 100).toFixed(2))
   const timeSpentSeconds = Math.round(elapsedSeconds)
