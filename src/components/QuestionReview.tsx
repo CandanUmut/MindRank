@@ -9,8 +9,8 @@ interface QuestionReviewProps {
 }
 
 function ReviewRow({ answer }: { answer: AnswerWithQuestion }) {
-  const [open, setOpen] = useState(false)
-  const { question, selected_answer, is_correct, time_taken_ms, number } = answer
+  const { question, selected_answer, is_correct, number } = answer
+  const [open, setOpen] = useState(!is_correct)
 
   if (!question) {
     return (
@@ -27,14 +27,12 @@ function ReviewRow({ answer }: { answer: AnswerWithQuestion }) {
     ? getOptionText(question, selected_answer)
     : 'Not answered'
   const correctText = getOptionText(question, question.correct_answer)
-  const timeS =
-    time_taken_ms != null ? `${(time_taken_ms / 1000).toFixed(1)}s` : '—'
 
   return (
     <>
       <tr
         className="border-b border-gray-100 cursor-pointer hover:bg-gray-50"
-        onClick={() => !is_correct && setOpen((o) => !o)}
+        onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
       >
         <td className="px-4 py-3 text-gray-500 tabular-nums">{number}</td>
@@ -43,9 +41,6 @@ function ReviewRow({ answer }: { answer: AnswerWithQuestion }) {
         </td>
         <td className="px-4 py-3 text-gray-800 max-w-xs truncate">
           {question.question_text}
-        </td>
-        <td className="px-4 py-3 text-center text-gray-500 text-xs tabular-nums hidden sm:table-cell">
-          {timeS}
         </td>
         <td className="px-4 py-3 text-center">
           {is_correct ? (
@@ -59,20 +54,25 @@ function ReviewRow({ answer }: { answer: AnswerWithQuestion }) {
           )}
         </td>
       </tr>
-      {/* Expanded explanation row – only for incorrect answers */}
-      {!is_correct && open && (
-        <tr className="bg-red-50 border-b border-red-100">
-          <td colSpan={5} className="px-4 py-4">
-            <div className="space-y-1 text-sm">
-              <p>
-                <span className="font-medium text-gray-600">Your answer: </span>
-                <span className="text-red-700">{selectedText}</span>
-              </p>
-              <p>
-                <span className="font-medium text-gray-600">Correct answer: </span>
-                <span className="text-green-700">{correctText}</span>
-              </p>
-              <p className="text-gray-700 mt-2 leading-relaxed">
+      {open && (
+        <tr className={`${is_correct ? 'bg-green-50 border-b border-green-100' : 'bg-red-50 border-b border-red-100'}`}>
+          <td colSpan={4} className="px-4 py-4">
+            <div className="space-y-2 text-sm">
+              {is_correct ? (
+                <p className="text-green-700 font-medium">You got this right!</p>
+              ) : (
+                <>
+                  <p>
+                    <span className="font-medium text-gray-600">Your answer: </span>
+                    <span className="text-red-700">{selectedText}</span>
+                  </p>
+                  <p>
+                    <span className="font-medium text-gray-600">Correct answer: </span>
+                    <span className="text-green-700">{correctText}</span>
+                  </p>
+                </>
+              )}
+              <p className="text-gray-700 leading-relaxed">
                 <span className="font-medium">Explanation: </span>
                 {question.explanation}
               </p>
@@ -90,11 +90,11 @@ export default function QuestionReview({ answers }: QuestionReviewProps) {
       <h2 className="text-lg font-semibold text-gray-900 mb-4">
         Question Review
         <span className="ml-2 text-sm font-normal text-gray-500">
-          (click any incorrect answer to see the explanation)
+          (click any question to see the explanation)
         </span>
       </h2>
       <div className="border border-gray-200 rounded-lg overflow-hidden overflow-x-auto">
-        <table className="w-full text-sm min-w-[500px]">
+        <table className="w-full text-sm min-w-[400px]">
           <thead>
             <tr className="bg-gray-50 text-left border-b border-gray-200">
               <th className="px-4 py-3 font-medium text-gray-600">#</th>
@@ -102,9 +102,6 @@ export default function QuestionReview({ answers }: QuestionReviewProps) {
                 Category
               </th>
               <th className="px-4 py-3 font-medium text-gray-600">Question</th>
-              <th className="px-4 py-3 font-medium text-gray-600 text-center hidden sm:table-cell">
-                Time
-              </th>
               <th className="px-4 py-3 font-medium text-gray-600 text-center">
                 Result
               </th>

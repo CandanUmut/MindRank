@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import Image from 'next/image'
+import { useRouter, Link } from '@/i18n/routing'
 import { formatTime } from '@/lib/utils/scoring'
 
 interface ProfileData {
@@ -233,6 +233,20 @@ export default function ProfilePage() {
             </button>
           </div>
         </div>
+
+        {/* Progress Dashboard Link */}
+        <Link
+          href="/profile/progress"
+          className="block mb-8 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg hover:border-blue-400 transition-colors"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-semibold text-gray-900">Progress Dashboard</p>
+              <p className="text-sm text-gray-500">Track your improvement over time</p>
+            </div>
+            <span className="text-blue-600 text-sm font-medium">View →</span>
+          </div>
+        </Link>
 
         {/* Quiz History */}
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Quiz History</h2>

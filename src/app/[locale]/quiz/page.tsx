@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter } from '@/i18n/routing'
 import Timer from '@/components/Timer'
 import QuizQuestion from '@/components/QuizQuestion'
 

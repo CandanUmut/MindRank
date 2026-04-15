@@ -4,6 +4,14 @@ interface CategoryBreakdownProps {
   categories: CategoryPerformance[]
 }
 
+const ratingLabel: Record<string, string> = {
+  Exceptional: 'Mastery Level ⭐',
+  Strong: 'Solid Foundation 💪',
+  Solid: 'Solid Foundation 💪',
+  Developing: 'Room to Grow 🌱',
+  Emerging: 'Room to Grow 🌱',
+}
+
 const ratingColor: Record<string, string> = {
   Exceptional: 'text-green-700',
   Strong: 'text-blue-700',
@@ -68,7 +76,7 @@ export default function CategoryBreakdown({ categories }: CategoryBreakdownProps
                 <td
                   className={`px-4 py-3 text-right font-medium ${ratingColor[cat.rating]}`}
                 >
-                  {cat.rating}
+                  {ratingLabel[cat.rating] ?? cat.rating}
                 </td>
               </tr>
             ))}
