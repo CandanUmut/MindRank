@@ -4,7 +4,7 @@ import './globals.css'
 export const metadata: Metadata = {
   title: 'MindRank',
   description:
-    'A timed 40-question quiz across seven knowledge domains. Find out where you stand.',
+    'A quiz platform with multiple categories — from mathematics and logic to emotional intelligence. Sign in, challenge yourself, and track your growth.',
 }
 
 export default function RootLayout({

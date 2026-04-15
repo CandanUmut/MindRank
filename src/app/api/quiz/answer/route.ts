@@ -4,8 +4,6 @@ import { createClient } from '@/lib/supabase/server'
 interface AnswerPayload {
   session_id: string
   question_id: string
-  // The DISPLAY label the user selected (A/B/C/D as shown on screen).
-  // The server maps this to the original option key using answer_order.
   selected_answer: 'A' | 'B' | 'C' | 'D'
   time_taken_ms: number
 }
@@ -19,6 +17,8 @@ type SessionRow = {
 
 type QuestionRow = {
   correct_answer: 'A' | 'B' | 'C' | 'D'
+  scoring_type: string
+  option_weights: Record<string, number> | null
 }
 
 const VALID_LABELS = new Set(['A', 'B', 'C', 'D'])
@@ -47,7 +47,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Missing or invalid fields' }, { status: 400 })
   }
 
-  // Validate the session belongs to this user and is in progress.
   const sessionResult = await supabase
     .from('quiz_sessions')
     .select('id, status, answer_order, question_order')
@@ -65,7 +64,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Session is not in progress' }, { status: 409 })
   }
 
-  // Map display label → original option key using the stored answer_order.
   const answerOrder = session.answer_order as Record<string, string[]>
   const displayLabels = ['A', 'B', 'C', 'D']
   const displayIndex = displayLabels.indexOf(selected_answer)
@@ -76,10 +74,9 @@ export async function POST(request: NextRequest) {
     | 'C'
     | 'D'
 
-  // Fetch the correct answer (server-side only, never exposed to client).
   const questionResult = await supabase
     .from('questions')
-    .select('correct_answer')
+    .select('correct_answer, scoring_type, option_weights')
     .eq('id', question_id)
     .single()
 
@@ -89,9 +86,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Question not found' }, { status: 404 })
   }
 
-  const isCorrect = question.correct_answer === originalKey
+  // For binary scoring: correct/incorrect based on correct_answer
+  // For weighted scoring: use option_weights, and mark as "correct" if they chose the highest-weighted option
+  let isCorrect: boolean
+  if (question.scoring_type === 'weighted' && question.option_weights) {
+    const weights = question.option_weights
+    const selectedWeight = weights[originalKey] ?? 0
+    const maxWeight = Math.max(...Object.values(weights))
+    isCorrect = selectedWeight === maxWeight
+  } else {
+    isCorrect = question.correct_answer === originalKey
+  }
 
-  // Insert the answer – ignore duplicate (user already answered this question).
   // @ts-expect-error – postgrest-js resolves Insert arg to never when Database generics
   // don't fully satisfy GenericSchema; runtime values are correct.
   const { error: insertError } = await supabase.from('user_answers').insert({
@@ -103,14 +109,12 @@ export async function POST(request: NextRequest) {
   })
 
   if (insertError) {
-    // 23505 = unique_violation – question already answered, treat as idempotent.
     if (insertError.code !== '23505') {
       console.error('[answer insert]', insertError)
       return NextResponse.json({ error: 'Failed to save answer' }, { status: 500 })
     }
   }
 
-  // Determine if this was the last question.
   const questionOrder = session.question_order as string[]
   const { count: answeredCount } = await supabase
     .from('user_answers')

@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
 type RankingRow = {
@@ -8,7 +8,7 @@ type RankingRow = {
   total_participants: number
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const supabase = await createClient()
 
   const {
@@ -19,7 +19,11 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { data, error } = await supabase.rpc('get_my_ranking')
+  const { searchParams } = new URL(request.url)
+  const quizTypeId = searchParams.get('quiz_type_id')
+
+  // @ts-expect-error – postgrest-js RPC arg inference mismatch with optional params
+  const { data, error } = await supabase.rpc('get_my_ranking', quizTypeId ? { p_quiz_type_id: quizTypeId } : {})
 
   if (error) {
     console.error('[get_my_ranking]', error)

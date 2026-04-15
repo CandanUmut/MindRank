@@ -6,7 +6,6 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
-// GenericRelationship shape required by @supabase/supabase-js internals.
 export type GenericRelationship = {
   foreignKeyName: string
   columns: string[]
@@ -22,18 +21,73 @@ export interface Database {
         Row: {
           id: string
           display_name: string
+          avatar_url: string | null
+          locale: 'en' | 'tr'
+          total_quizzes_taken: number
+          show_on_leaderboard: boolean
           created_at: string
           updated_at: string
         }
         Insert: {
           id: string
           display_name?: string
+          avatar_url?: string | null
+          locale?: 'en' | 'tr'
+          total_quizzes_taken?: number
+          show_on_leaderboard?: boolean
           created_at?: string
           updated_at?: string
         }
         Update: {
           display_name?: string
+          avatar_url?: string | null
+          locale?: 'en' | 'tr'
+          show_on_leaderboard?: boolean
           updated_at?: string
+        }
+        Relationships: GenericRelationship[]
+      }
+      quiz_types: {
+        Row: {
+          id: string
+          slug: string
+          name_en: string
+          name_tr: string | null
+          description_en: string
+          description_tr: string | null
+          icon: string
+          category_group: 'mixed' | 'single-domain' | 'specialized'
+          question_count: number
+          time_limit_seconds: number
+          is_active: boolean
+          sort_order: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          slug: string
+          name_en: string
+          name_tr?: string | null
+          description_en: string
+          description_tr?: string | null
+          icon: string
+          category_group: 'mixed' | 'single-domain' | 'specialized'
+          question_count: number
+          time_limit_seconds: number
+          is_active?: boolean
+          sort_order: number
+          created_at?: string
+        }
+        Update: {
+          name_en?: string
+          name_tr?: string | null
+          description_en?: string
+          description_tr?: string | null
+          icon?: string
+          question_count?: number
+          time_limit_seconds?: number
+          is_active?: boolean
+          sort_order?: number
         }
         Relationships: GenericRelationship[]
       }
@@ -52,6 +106,8 @@ export interface Database {
           time_seconds: number
           sort_order: number
           is_active: boolean
+          scoring_type: 'binary' | 'weighted'
+          option_weights: Json
           created_at: string
         }
         Insert: {
@@ -68,6 +124,8 @@ export interface Database {
           time_seconds?: number
           sort_order: number
           is_active?: boolean
+          scoring_type?: 'binary' | 'weighted'
+          option_weights?: Json
           created_at?: string
         }
         Update: {
@@ -83,6 +141,8 @@ export interface Database {
           time_seconds?: number
           sort_order?: number
           is_active?: boolean
+          scoring_type?: 'binary' | 'weighted'
+          option_weights?: Json
         }
         Relationships: GenericRelationship[]
       }
@@ -90,6 +150,7 @@ export interface Database {
         Row: {
           id: string
           user_id: string
+          quiz_type_id: string | null
           started_at: string
           server_started_at: string
           finished_at: string | null
@@ -107,6 +168,7 @@ export interface Database {
         Insert: {
           id?: string
           user_id: string
+          quiz_type_id?: string | null
           started_at?: string
           server_started_at?: string
           finished_at?: string | null
@@ -122,6 +184,7 @@ export interface Database {
           created_at?: string
         }
         Update: {
+          quiz_type_id?: string | null
           finished_at?: string | null
           server_finished_at?: string | null
           time_spent_seconds?: number | null
@@ -158,21 +221,30 @@ export interface Database {
         Relationships: GenericRelationship[]
       }
     }
-    // Use mapped-type empty objects (no string index) to avoid polluting
-    // the TablesAndViews intersection inside @supabase/postgrest-js.
     Views: { [_ in never]: never }
     Functions: {
       start_quiz_session: {
-        Args: Record<string, never>
+        Args: { p_quiz_type_id?: string }
         Returns: string
       }
       get_my_ranking: {
-        Args: Record<string, never>
+        Args: { p_quiz_type_id?: string }
         Returns: {
           my_score: number
           my_rank: number
           my_percentile: number
           total_participants: number
+        }[]
+      }
+      get_leaderboard: {
+        Args: { p_quiz_type_id: string; p_limit?: number }
+        Returns: {
+          rank: number
+          display_name: string
+          score: number
+          percentage: number
+          completed_at: string
+          is_current_user: boolean
         }[]
       }
       refresh_leaderboard: {

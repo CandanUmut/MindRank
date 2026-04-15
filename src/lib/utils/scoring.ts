@@ -6,6 +6,13 @@ export type CategoryName =
   | 'Logic & Problem Solving'
   | 'Ethics & Philosophy'
   | 'Science'
+  | 'IQ Patterns'
+  | 'Emotional Intelligence'
+  | 'Spatial Reasoning'
+  | 'Verbal Reasoning'
+  | 'History'
+  | 'Geography'
+  | 'Technology'
 
 export type PerformanceTier =
   | 'Exceptional'

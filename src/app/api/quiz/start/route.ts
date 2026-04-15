@@ -1,8 +1,6 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
-// Local shapes for query results – avoids fighting Supabase type-inference
-// on complex JSONB column selections.
 type SessionRow = {
   question_order: string[]
   answer_order: Record<string, string[]>
@@ -18,9 +16,10 @@ type QuestionRow = {
   category: string
   difficulty: string
   time_seconds: number
+  scoring_type: string
 }
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   const supabase = await createClient()
 
   const {
@@ -31,11 +30,16 @@ export async function POST() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // start_quiz_session() creates a new session or resumes an in_progress one.
-  // It raises 'already_completed' when the user has a finished session.
-  const { data: sessionId, error: rpcError } = await supabase.rpc(
-    'start_quiz_session'
-  )
+  let quizTypeId: string | undefined
+  try {
+    const body = await request.json()
+    quizTypeId = body.quiz_type_id
+  } catch {
+    // No body is fine for legacy calls
+  }
+
+  // @ts-expect-error – postgrest-js RPC arg inference mismatch with optional params
+  const { data: sessionId, error: rpcError } = await supabase.rpc('start_quiz_session', quizTypeId ? { p_quiz_type_id: quizTypeId } : {})
 
   if (rpcError) {
     const msg = rpcError.message ?? ''
@@ -46,7 +50,6 @@ export async function POST() {
     return NextResponse.json({ error: 'Failed to start quiz' }, { status: 500 })
   }
 
-  // Fetch the session to read question_order and answer_order.
   const sessionResult = await supabase
     .from('quiz_sessions')
     .select('question_order, answer_order')
@@ -62,11 +65,10 @@ export async function POST() {
   const questionIds = session.question_order as string[]
   const answerOrder = session.answer_order as Record<string, string[]>
 
-  // Fetch all active questions (without correct_answer – excluded from SELECT).
   const questionsResult = await supabase
     .from('questions')
     .select(
-      'id, question_text, option_a, option_b, option_c, option_d, category, difficulty, time_seconds'
+      'id, question_text, option_a, option_b, option_c, option_d, category, difficulty, time_seconds, scoring_type'
     )
     .in('id', questionIds)
     .eq('is_active', true)
@@ -77,11 +79,8 @@ export async function POST() {
     return NextResponse.json({ error: 'Failed to load questions' }, { status: 500 })
   }
 
-  // Build a lookup map for O(1) access by id.
   const qMap = new Map(questions.map((q) => [q.id, q]))
 
-  // Return questions in the session's randomised order, with answer options
-  // also shuffled per the stored answer_order. correct_answer is never sent.
   const orderedQuestions = questionIds.map((qId, idx) => {
     const q = qMap.get(qId)
     if (!q) return null
@@ -93,8 +92,6 @@ export async function POST() {
       C: q.option_c,
       D: q.option_d,
     }
-    // shuffle is an array like ["C","A","D","B"]: the original option that
-    // appears in each display slot (A=slot0, B=slot1, C=slot2, D=slot3).
     const displayLabels = ['A', 'B', 'C', 'D'] as const
     const options = shuffle.map((origKey, slotIdx) => ({
       label: displayLabels[slotIdx],
@@ -109,10 +106,10 @@ export async function POST() {
       category: q.category,
       difficulty: q.difficulty,
       time_seconds: q.time_seconds,
+      scoring_type: q.scoring_type,
     }
   })
 
-  // Find how many questions have already been answered (resume support).
   const { count: answeredCount } = await supabase
     .from('user_answers')
     .select('*', { count: 'exact', head: true })

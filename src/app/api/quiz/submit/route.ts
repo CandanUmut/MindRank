@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
-const TIME_LIMIT_SECONDS = 25 * 60   // 25 minutes
-const GRACE_PERIOD_SECONDS = 5        // 5-second network grace
+const GRACE_PERIOD_SECONDS = 5
 
 type SessionRow = {
   id: string
   status: string
   server_started_at: string
   max_possible_score: number
+  quiz_type_id: string | null
+}
+
+type QuizTypeRow = {
+  time_limit_seconds: number
 }
 
 export async function POST(request: NextRequest) {
@@ -34,10 +38,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'session_id required' }, { status: 400 })
   }
 
-  // Fetch the session.
   const sessionResult = await supabase
     .from('quiz_sessions')
-    .select('id, status, server_started_at, max_possible_score')
+    .select('id, status, server_started_at, max_possible_score, quiz_type_id')
     .eq('id', session_id)
     .eq('user_id', user.id)
     .single()
@@ -49,20 +52,30 @@ export async function POST(request: NextRequest) {
   }
 
   if (session.status !== 'in_progress') {
-    // Already submitted – idempotent response.
     return NextResponse.json({ success: true })
   }
 
-  // Server-side time validation.
+  // Get time limit from quiz type, or default to 25 minutes
+  let timeLimitSeconds = 25 * 60
+  if (session.quiz_type_id) {
+    const { data: qt } = await supabase
+      .from('quiz_types')
+      .select('time_limit_seconds')
+      .eq('id', session.quiz_type_id)
+      .single()
+    if (qt) {
+      timeLimitSeconds = (qt as QuizTypeRow).time_limit_seconds
+    }
+  }
+
   const now = new Date()
   const started = new Date(session.server_started_at)
   const elapsedSeconds = (now.getTime() - started.getTime()) / 1000
   const status: 'completed' | 'timed_out' =
-    elapsedSeconds > TIME_LIMIT_SECONDS + GRACE_PERIOD_SECONDS
+    elapsedSeconds > timeLimitSeconds + GRACE_PERIOD_SECONDS
       ? 'timed_out'
       : 'completed'
 
-  // Count correct answers.
   const { count: correctCount, error: countError } = await supabase
     .from('user_answers')
     .select('*', { count: 'exact', head: true })
@@ -79,7 +92,6 @@ export async function POST(request: NextRequest) {
   const percentage = parseFloat(((score / maxScore) * 100).toFixed(2))
   const timeSpentSeconds = Math.round(elapsedSeconds)
 
-  // Update the session.
   const { error: updateError } = await supabase
     .from('quiz_sessions')
     // @ts-expect-error – postgrest-js resolves Update arg to never when Database generics
@@ -99,7 +111,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to save results' }, { status: 500 })
   }
 
-  // Refresh the leaderboard so ranking is immediately available.
+  // Refresh legacy leaderboard for backward compat
   await supabase.rpc('refresh_leaderboard')
 
   return NextResponse.json({ success: true, status })

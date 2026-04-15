@@ -18,9 +18,8 @@ interface Question {
   category: string
   difficulty: 'Easy' | 'Medium' | 'Hard'
   time_seconds: number
+  scoring_type?: string
 }
-
-const QUIZ_DURATION_SECONDS = 25 * 60 // 25 minutes
 
 export default function QuizPage() {
   const router = useRouter()
@@ -29,6 +28,8 @@ export default function QuizPage() {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [quizName, setQuizName] = useState('MindRank')
+  const [timeLimit, setTimeLimit] = useState(25 * 60)
   const submittingRef = useRef(false)
 
   const submitQuiz = useCallback(
@@ -42,12 +43,15 @@ export default function QuizPage() {
         body: JSON.stringify({ session_id: sid }),
       })
 
-      // Clear quiz state from sessionStorage.
+      const resultSessionId = sid
       sessionStorage.removeItem('quiz_session_id')
       sessionStorage.removeItem('quiz_questions')
       sessionStorage.removeItem('quiz_answered_count')
+      sessionStorage.removeItem('quiz_type_slug')
+      sessionStorage.removeItem('quiz_type_name')
+      sessionStorage.removeItem('quiz_time_limit')
 
-      router.push('/results')
+      router.push(`/results?session_id=${resultSessionId}`)
     },
     [router]
   )
@@ -56,9 +60,10 @@ export default function QuizPage() {
     const storedId = sessionStorage.getItem('quiz_session_id')
     const storedQuestions = sessionStorage.getItem('quiz_questions')
     const storedAnsweredCount = sessionStorage.getItem('quiz_answered_count')
+    const storedName = sessionStorage.getItem('quiz_type_name')
+    const storedTimeLimit = sessionStorage.getItem('quiz_time_limit')
 
     if (!storedId || !storedQuestions) {
-      // No session in storage – bounce back to landing.
       router.replace('/')
       return
     }
@@ -68,6 +73,8 @@ export default function QuizPage() {
       setSessionId(storedId)
       setQuestions(parsed)
       setCurrentIndex(Math.min(Number(storedAnsweredCount ?? 0), parsed.length - 1))
+      if (storedName) setQuizName(storedName)
+      if (storedTimeLimit) setTimeLimit(Number(storedTimeLimit))
       setLoading(false)
     } catch {
       setLoadError('Failed to load quiz data. Please return to the home page.')
@@ -80,9 +87,7 @@ export default function QuizPage() {
       if (!sessionId || submittingRef.current) return
 
       const question = questions[currentIndex]
-      const timeTakenMs = 0 // tracked per-question start time could be added in Phase 2
 
-      // Submit the answer to the server.
       const res = await fetch('/api/quiz/answer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -90,7 +95,7 @@ export default function QuizPage() {
           session_id: sessionId,
           question_id: question.id,
           selected_answer: selectedLabel,
-          time_taken_ms: timeTakenMs,
+          time_taken_ms: 0,
         }),
       })
 
@@ -120,7 +125,7 @@ export default function QuizPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
-        <p className="text-gray-500">Loading quiz…</p>
+        <p className="text-gray-500">Loading quiz...</p>
       </div>
     )
   }
@@ -143,25 +148,23 @@ export default function QuizPage() {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Top bar: progress info + timer */}
       <header className="sticky top-0 bg-white border-b border-gray-200 z-10">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
           <span className="text-sm font-medium text-gray-700">
-            MindRank
+            {quizName}
           </span>
           <div className="flex items-center gap-4">
             <span className="text-sm text-gray-500">
               {currentIndex + 1} / {questions.length}
             </span>
             <Timer
-              durationSeconds={QUIZ_DURATION_SECONDS}
+              durationSeconds={timeLimit}
               onExpire={handleTimerExpire}
             />
           </div>
         </div>
       </header>
 
-      {/* Question */}
       <QuizQuestion
         key={question.id}
         question={question}

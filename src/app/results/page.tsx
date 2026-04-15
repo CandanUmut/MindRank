@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import ResultSummary from '@/components/ResultSummary'
 import CategoryBreakdown from '@/components/CategoryBreakdown'
 import QuestionReview from '@/components/QuestionReview'
@@ -14,6 +14,7 @@ interface SessionData {
   percentage: number
   time_spent_seconds: number
   status: string
+  quiz_type_id: string | null
 }
 
 interface RankingData {
@@ -31,21 +32,36 @@ interface ResultsData {
 }
 
 export default function ResultsPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-white flex items-center justify-center"><p className="text-gray-500">Loading results...</p></div>}>
+      <ResultsContent />
+    </Suspense>
+  )
+}
+
+function ResultsContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const sessionId = searchParams.get('session_id')
+
   const [results, setResults] = useState<ResultsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     async function fetchResults() {
-      const res = await fetch('/api/quiz/results')
+      const url = sessionId
+        ? `/api/quiz/results?session_id=${sessionId}`
+        : '/api/quiz/results'
+
+      const res = await fetch(url)
 
       if (res.status === 401) {
-        router.replace('/')
+        router.replace('/auth/login')
         return
       }
       if (res.status === 404) {
-        setError('No completed quiz found. Take the quiz first.')
+        setError('No completed quiz found. Take a quiz first.')
         setLoading(false)
         return
       }
@@ -61,12 +77,12 @@ export default function ResultsPage() {
     }
 
     fetchResults()
-  }, [router])
+  }, [router, sessionId])
 
   if (loading) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
-        <p className="text-gray-500">Loading results…</p>
+        <p className="text-gray-500">Loading results...</p>
       </div>
     )
   }
@@ -87,11 +103,10 @@ export default function ResultsPage() {
   return (
     <main className="min-h-screen bg-white">
       <div className="max-w-3xl mx-auto px-4 py-10">
-        {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Your Results</h1>
           <p className="text-gray-500 mt-1 text-sm">
-            Quiz completed · {results.answers.length} questions
+            Quiz completed &middot; {results.answers.length} questions
           </p>
         </div>
 
@@ -99,19 +114,26 @@ export default function ResultsPage() {
         <CategoryBreakdown categories={results.category_performance} />
         <QuestionReview answers={results.answers} />
 
-        {/* Navigation */}
         <div className="flex flex-wrap gap-4 mt-8 pt-8 border-t border-gray-200">
-          <a
-            href="/leaderboard"
-            className="px-5 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 text-sm"
-          >
-            View Leaderboard
-          </a>
+          {results.session.quiz_type_id && (
+            <a
+              href={`/leaderboard?quiz_type_id=${results.session.quiz_type_id}`}
+              className="px-5 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 text-sm"
+            >
+              View Leaderboard
+            </a>
+          )}
           <a
             href="/"
             className="px-5 py-2.5 border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 text-sm"
           >
-            Home
+            Take Another Quiz
+          </a>
+          <a
+            href="/profile"
+            className="px-5 py-2.5 border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 text-sm"
+          >
+            View Profile
           </a>
         </div>
       </div>

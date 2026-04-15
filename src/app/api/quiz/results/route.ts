@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { computeCategoryPerformance } from '@/lib/utils/scoring'
 import type { AnswerWithQuestion } from '@/lib/utils/scoring'
@@ -11,6 +11,7 @@ type SessionRow = {
   time_spent_seconds: number | null
   status: string
   question_order: string[]
+  quiz_type_id: string | null
 }
 
 type AnswerRow = {
@@ -29,6 +30,8 @@ type AnswerRow = {
     explanation: string
     category: string
     difficulty: string
+    scoring_type: string
+    option_weights: Record<string, number> | null
   } | null
 }
 
@@ -39,7 +42,7 @@ type RankingRow = {
   total_participants: number
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const supabase = await createClient()
 
   const {
@@ -50,15 +53,33 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Fetch the user's completed session.
-  const sessionResult = await supabase
-    .from('quiz_sessions')
-    .select(
-      'id, score, max_possible_score, percentage, time_spent_seconds, status, question_order'
-    )
-    .eq('user_id', user.id)
-    .in('status', ['completed', 'timed_out'])
-    .single()
+  const { searchParams } = new URL(request.url)
+  const sessionId = searchParams.get('session_id')
+
+  let sessionResult
+  if (sessionId) {
+    sessionResult = await supabase
+      .from('quiz_sessions')
+      .select(
+        'id, score, max_possible_score, percentage, time_spent_seconds, status, question_order, quiz_type_id'
+      )
+      .eq('id', sessionId)
+      .eq('user_id', user.id)
+      .in('status', ['completed', 'timed_out'])
+      .single()
+  } else {
+    // Get most recent completed session
+    sessionResult = await supabase
+      .from('quiz_sessions')
+      .select(
+        'id, score, max_possible_score, percentage, time_spent_seconds, status, question_order, quiz_type_id'
+      )
+      .eq('user_id', user.id)
+      .in('status', ['completed', 'timed_out'])
+      .order('finished_at', { ascending: false })
+      .limit(1)
+      .single()
+  }
 
   const session = sessionResult.data as SessionRow | null
 
@@ -66,7 +87,6 @@ export async function GET() {
     return NextResponse.json({ error: 'No completed session found' }, { status: 404 })
   }
 
-  // Fetch answers joined with question data (including correct_answer for post-quiz review).
   const answersResult = await supabase
     .from('user_answers')
     .select(
@@ -85,7 +105,9 @@ export async function GET() {
         correct_answer,
         explanation,
         category,
-        difficulty
+        difficulty,
+        scoring_type,
+        option_weights
       )
     `
     )
@@ -95,7 +117,6 @@ export async function GET() {
 
   const questionOrder = session.question_order as string[]
 
-  // Build ordered answer list, filling in nulls for unanswered questions.
   const answerMap = new Map(
     (answers ?? []).map((a) => [a.question_id, a])
   )
@@ -113,8 +134,8 @@ export async function GET() {
 
   const categoryPerformance = computeCategoryPerformance(orderedAnswers)
 
-  // Fetch ranking (may be empty if leaderboard not yet populated).
-  const rankingResult = await supabase.rpc('get_my_ranking')
+  // @ts-expect-error – postgrest-js RPC arg inference mismatch with optional params
+  const rankingResult = await supabase.rpc('get_my_ranking', session.quiz_type_id ? { p_quiz_type_id: session.quiz_type_id } : {})
   const rankingRows = rankingResult.data as RankingRow[] | null
   const ranking = rankingRows && rankingRows.length > 0 ? rankingRows[0] : null
 
@@ -126,6 +147,7 @@ export async function GET() {
       percentage: session.percentage ?? 0,
       time_spent_seconds: session.time_spent_seconds ?? 0,
       status: session.status,
+      quiz_type_id: session.quiz_type_id,
     },
     answers: orderedAnswers,
     category_performance: categoryPerformance,
